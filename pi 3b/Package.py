@@ -6,10 +6,10 @@ import base64
 # Wi-Fi is managed by the OS in Raspberry Pi, so no `network` module is needed.
 
 # Twilio credentials
-account_sid = "ACef0891eedfcf4aa3bbc75430a3e930fe"  # Twilio Account SID
-auth_token = "f7b3d04842540d2f8d5acf447ca9bc01"     # Twilio Auth Token
-twilio_number = "+19034595120"  # Twilio phone number
-recipient_number = "+919108211783"  # Recipient phone number
+account_sid = "# Twilio Account SID"  
+auth_token = "# Twilio Auth Token"     
+twilio_number = "# Twilio phone number"  
+recipient_number = "# Recipient phone number"  
 
 # Define GPIO pins
 TRIG_PIN = 27
