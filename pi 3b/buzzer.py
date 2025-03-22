@@ -1,66 +1,87 @@
-from machine import Pin, time_pulse_us
+import RPi.GPIO as GPIO
 import time
 
 # Define GPIO pins
-TRIG_PIN = 4  # New Trig pin
-ECHO_PIN = 8  # New Echo pin
-RELAY_PIN = 9  # New Relay pin
+TRIG = 23  # Ultrasonic sensor Trig pin
+ECHO = 24  # Ultrasonic sensor Echo pin
+RELAY_PIN = 17  # Relay module controlling the buzzer
 
-# Set up pins
-trig = Pin(TRIG_PIN, Pin.OUT)
-echo = Pin(ECHO_PIN, Pin.IN)
-relay = Pin(RELAY_PIN, Pin.OUT)
+# Threshold distance in cm
+THRESHOLD_DISTANCE = 7
+WAIT_TIME = 5  # 5-second delay before beeping
 
-# Function to measure distance
+# Setup GPIO
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(TRIG, GPIO.OUT)
+GPIO.setup(ECHO, GPIO.IN)
+GPIO.setup(RELAY_PIN, GPIO.OUT)
+GPIO.output(RELAY_PIN, GPIO.LOW)  # Ensure buzzer is OFF initially
+
 def get_distance():
-    # Send a 10us pulse to trigger
-    trig.value(0)
-    time.sleep_us(2)
-    trig.value(1)
-    time.sleep_us(10)
-    trig.value(0)
+    """
+    Measures the distance using HC-SR04 Ultrasonic Sensor.
+    
+    Returns:
+        float: Distance in centimeters.
+    """
+    # Send 10Âµs pulse to trigger pin
+    GPIO.output(TRIG, True)
+    time.sleep(0.00001)  # 10Âµs pulse
+    GPIO.output(TRIG, False)
 
-    # Measure the pulse width on the echo pin
-    pulse_time = time_pulse_us(echo, 1, 30000)  # Timeout after 30ms
-    if pulse_time == -1:
-        # No echo received, return a large invalid distance
-        return -1
+    start_time = time.time()
+    stop_time = time.time()
 
-    # Convert pulse duration to distance in cm
-    distance = (pulse_time / 2) / 29.1  # Speed of sound is ~343 m/s
-    return distance
+    # Record the last low timestamp for Echo pin
+    while GPIO.input(ECHO) == 0:
+        start_time = time.time()
 
-# Variables for tracking door state
-door_open = False
-door_open_time = 0
+    # Record the last high timestamp for Echo pin
+    while GPIO.input(ECHO) == 1:
+        stop_time = time.time()
+
+    # Calculate pulse duration
+    elapsed_time = stop_time - start_time
+
+    # Convert duration to distance (Speed of sound: 34300 cm/s)
+    distance = (elapsed_time * 34300) / 2  # Divide by 2 for round-trip
+
+    return round(distance, 2)
 
 try:
+    print("Ultrasonic Sensor & Buzzer System Running...")
     while True:
         distance = get_distance()
-        current_time = time.ticks_ms()
+        print(f"Distance: {distance} cm")
 
-        if distance == -1:
-            print("No echo received. Check sensor and connections.")
+        if distance > THRESHOLD_DISTANCE:
+            print("Object too far! Waiting 5 seconds before beeping...")
+            start_time = time.time()
+
+            # Wait for 5 seconds, but if the distance goes below threshold, stop waiting
+            while time.time() - start_time < WAIT_TIME:
+                distance = get_distance()
+                if distance <= THRESHOLD_DISTANCE:
+                    print("Object back within range. Cancelling beep.")
+                    break  # Stop waiting and reset
+
+            else:
+                print("Buzzer Beeping!")
+                while get_distance() > THRESHOLD_DISTANCE:
+                    GPIO.output(RELAY_PIN, GPIO.HIGH)  # Buzzer ON
+                    time.sleep(0.3)  # Beep duration
+                    GPIO.output(RELAY_PIN, GPIO.LOW)  # Buzzer OFF
+                    time.sleep(0.3)  # Pause duration
+
         else:
-            print("Distance: {:.2f} cm".format(distance))
+            GPIO.output(RELAY_PIN, GPIO.LOW)  # Ensure buzzer is OFF
+            print("Buzzer OFF! Object within range.")
 
-        if distance != -1 and distance <= 10:
-            relay.value(0)  # Deactivate relay (door closed, buzzer off)
-            door_open = False  # Reset door state
-        else:
-            if not door_open:
-                door_open = True
-                door_open_time = current_time  # Record the time the door was opened
-
-            if time.ticks_diff(current_time, door_open_time) >= 7000:  # 7 seconds
-                # Make the buzzer beep
-                relay.value(1)
-                time.sleep(0.3)  # Buzzer on for 200ms
-                relay.value(0)
-                time.sleep(0.7)  # Buzzer off for 300ms
-
-        time.sleep(0.1)  # Small delay to stabilize readings
+        time.sleep(0.1)  # Small delay for stability
 
 except KeyboardInterrupt:
-    print("Program stopped")
-    relay.value(0)  # Ensure relay is off
+    print("\nProcess interrupted by user.")
+finally:
+    GPIO.cleanup()  # Reset GPIO pins
+
+
